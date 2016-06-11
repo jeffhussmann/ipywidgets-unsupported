@@ -6,6 +6,12 @@ from IPython import get_ipython
 
 def _get_html(obj):
     """Get the HTML representation of an object"""
+    def aligner(obj):
+        return '''<div name="aligner" style="float: left;"> {0} </div>'''.format(_get_html(obj))
+
+    if isinstance(obj, tuple):
+        return ''.join(map(aligner, obj))
+
     # TODO: use displaypub to make this more general
     ip = get_ipython()
     png_rep = ip.display_formatter.formatters['image/png'](obj)
@@ -16,7 +22,10 @@ def _get_html(obj):
         return ('<img src="data:image/png;'
                 'base64,{0}">'.format(png_rep.encode('base64')))
     else:
-        return "<p> {0} </p>".format(str(obj))
+        if hasattr(obj, '_repr_html_'):
+            return obj._repr_html_()
+        else:
+            return "<p> {0} </p>".format(str(obj))
 
     rep = ip.display_formatter.formatters['text/html'](obj)
 
@@ -29,7 +38,7 @@ def _get_html(obj):
 class StaticInteract(object):
     """Static Interact Object"""
     
-    template = """
+    widgets_below_template = """
     <script type="text/javascript">
       var mergeNodes = function(a, b) {{
         return [].slice.call(a).concat([].slice.call(b));
@@ -57,7 +66,7 @@ class StaticInteract(object):
            var name = outputs[i].getAttribute("name");
            if(name == value){{
               outputs[i].style.display = 'block';
-           }} else if(name != "controls"){{
+           }} else if(name != "controls" && name != "aligner"){{
               outputs[i].style.display = 'none';
            }}
          }}
@@ -75,19 +84,60 @@ class StaticInteract(object):
       {content}
     </div>
     """
+    
+    widgets_above_template = """
+    <script type="text/javascript">
+      var mergeNodes = function(a, b) {{
+        return [].slice.call(a).concat([].slice.call(b));
+      }}; // http://stackoverflow.com/questions/914783/javascript-nodelist/17262552#17262552
+      function interactUpdate(div){{
+         var outputs = div.getElementsByTagName("div");
+         //var controls = div.getElementsByTagName("input");
+         var controls = mergeNodes(div.getElementsByTagName("input"), div.getElementsByTagName("select"));
+         function nameCompare(a,b) {{
+            return a.getAttribute("name").localeCompare(b.getAttribute("name"));
+         }}
+         controls.sort(nameCompare);
 
+         var value = "";
+         for(i=0; i<controls.length; i++){{
+           if((controls[i].type == "range") || controls[i].checked){{
+             value = value + controls[i].getAttribute("name") + controls[i].value;
+           }}
+           if(controls[i].type == "select-one"){{
+             value = value + controls[i].getAttribute("name") + controls[i][controls[i].selectedIndex].value;
+           }}
+         }}
+
+         for(i=0; i<outputs.length; i++){{
+           var name = outputs[i].getAttribute("name");
+           if(name == value){{
+              outputs[i].style.display = 'block';
+           }} else if(name != "controls" && name != "aligner"){{
+              outputs[i].style.display = 'none';
+           }}
+         }}
+      }}
+    </script>
+    
+    <div>
+      {widgets}
+      {outputs}
+    </div>
+    """
+    
     @staticmethod
     def _get_strrep(val):
         """Need to match javascript string rep"""
         # TODO: is there a better way to do this?
         if isinstance(val, str):
             return val
-        elif val % 1 == 0:
+        elif isinstance(val, int):
             return str(int(val))
         else:
             return str(val)
 
-    def __init__(self, function, **kwargs):
+    def __init__(self, function, widgets_above=False, **kwargs):
         # TODO: implement *args (difficult because of the name thing)
         # update names
         for name in kwargs:
@@ -95,6 +145,11 @@ class StaticInteract(object):
 
         self.widgets = OrderedDict(kwargs)
         self.function = function
+
+        if widgets_above:
+            self.template = self.widgets_above_template
+        else:
+            self.template = self.widgets_below_template
         
     def _output_html(self):
         names = [name for name in self.widgets]
@@ -131,4 +186,3 @@ class StaticInteract(object):
         
     def _repr_html_(self):
         return self.html()
-        
